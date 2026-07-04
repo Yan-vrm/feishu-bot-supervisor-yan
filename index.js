@@ -1,73 +1,108 @@
-const express = require("express");
-const fetch = require("node-fetch");
+import fs from "fs";
+import express from "express";
+import axios from "axios";
 
 const app = express();
 app.use(express.json());
 
-// 🔹 Coloque aqui os IDs Feishu dos seus promotores
-const meusPromotores = [
-  "ou_1234567890",
-  "ou_0987654321",
-  "ou_1122334455"
-];
-
-// 🔹 Seu ID Feishu (para onde o bot vai enviar as mensagens filtradas)
-const SUPERVISOR_ID = "SEU_FEISHU_ID";
-
-// 🔹 Token de acesso do app (você pega no Feishu Developer Console)
-const ACCESS_TOKEN = "SEU_ACCESS_TOKEN";
-
-// 📌 Endpoint que o Feishu chama quando chega mensagem no grupo
-app.post("/bot", async (req, res) => {
-  // 🧩 Verificação do Challenge Code
-  if (req.body && req.body.challenge) {
-    return res.send({ challenge: req.body.challenge });
-  }
-
-  // 🧩 Processamento normal de mensagens
-  const event = req.body.event;
-  if (!event || !event.message) {
-    return res.send({ code: 0 });
-  }
-
-  const senderId = event.sender.sender_id.user_id;
-  const messageContent = event.message.content;
-
-  // 🔍 Verifica se o autor da mensagem é um dos seus promotores
-  if (meusPromotores.includes(senderId)) {
-    console.log("Mensagem de promotor detectada:", messageContent);
-    await enviarParaSupervisor(messageContent);
-  }
-
-  // Resposta obrigatória para Feishu
-  res.send({ code: 0 });
-});
-
-// 📌 Função que envia a mensagem filtrada para você
-async function enviarParaSupervisor(texto) {
-  try {
-    await fetch("https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=user_id", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${ACCESS_TOKEN}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        receive_id: SUPERVISOR_ID,
-        msg_type: "text",
-        content: JSON.stringify({
-          text: `📌 Venda identificada:\n${texto}`
-        })
-      })
-    });
-
-    console.log("Mensagem enviada para o supervisor.");
-  } catch (error) {
-    console.error("Erro ao enviar mensagem:", error);
-  }
+// Carrega promotores
+function carregarPromotores() {
+  const data = fs.readFileSync("promotores.json");
+  return JSON.parse(data).lista;
 }
 
-// 📌 Inicia o servidor
-app.listen(3000, () => {
-  console.log("Bot rodando na porta 3000");
+// Salva promotores
+function salvarPromotores(lista) {
+  fs.writeFileSync("promotores.json", JSON.stringify({ lista }, null, 2));
+}
+
+// Enviar mensagem
+async function enviarMensagem(chatId, texto) {
+  const token = await gerarToken();
+  await axios.post(
+    "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id",
+    {
+      receive_id: chatId,
+      msg_type: "text",
+      content: JSON.stringify({ text: texto })
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      }
+    }
+  );
+}
+
+// Token
+async function gerarToken() {
+  const res = await axios.post(
+    "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+    {
+      app_id: process.env.APP_ID,
+      app_secret: process.env.APP_SECRET
+    }
+  );
+  return res.data.tenant_access_token;
+}
+
+// BOT
+app.post("/bot", async (req, res) => {
+  const event = req.body;
+
+  if (event.type === "url_verification") {
+    return res.send({ challenge: event.challenge });
+  }
+
+  if (event.header.event_type === "im.message.receive_v1") {
+    const msg = event.event;
+
+    const chatId = msg.message.chat_id;
+    const senderId = msg.sender.sender_id.open_id;
+    const texto = JSON.parse(msg.message.content).text.trim();
+
+    let promotores = carregarPromotores();
+
+    // Comando: adicionar promotor
+    if (texto === "/addpromotor") {
+      if (!promotores.includes(senderId)) {
+        promotores.push(senderId);
+        salvarPromotores(promotores);
+        await enviarMensagem(chatId, "✔ Você agora é um promotor!");
+      } else {
+        await enviarMensagem(chatId, "Você já é promotor.");
+      }
+      return res.sendStatus(200);
+    }
+
+    // Comando: remover promotor
+    if (texto === "/removepromotor") {
+      if (promotores.includes(senderId)) {
+        promotores = promotores.filter(id => id !== senderId);
+        salvarPromotores(promotores);
+        await enviarMensagem(chatId, "❌ Você foi removido da lista de promotores.");
+      } else {
+        await enviarMensagem(chatId, "Você não está na lista de promotores.");
+      }
+      return res.sendStatus(200);
+    }
+
+    // Se não for promotor → ignorar
+    if (!promotores.includes(senderId)) {
+      console.log("Ignorado: não é promotor.");
+      return res.sendStatus(200);
+    }
+
+    // Mensagem de promotor
+    await enviarMensagem(chatId, `Promotor falou: ${texto}`);
+
+    return res.sendStatus(200);
+  }
+
+  res.sendStatus(200);
 });
+
+// Iniciar servidor
+app.listen(3000, () => console.log("Bot rodando!"));
+
