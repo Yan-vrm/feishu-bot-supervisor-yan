@@ -1,13 +1,14 @@
 {
   "name": "feishu-bot-supervisor-yan",
   "version": "1.0.0",
+  "description": "Bot Supervisor para Feishu",
+  "type": "module",
   "main": "index.js",
-  "license": "MIT",
-  "dependencies": {
-    "express": "^4.18.2",
-    "node-fetch": "^2.6.7"
-  },
   "scripts": {
     "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "axios": "^1.6.0"
   }
 }
