@@ -9,6 +9,12 @@ app.use(bodyParser.json());
 const APP_ID = "cli_aac3ff41a578dcef";
 const APP_SECRET = "E6Obo8U9KbLNUV2KVkWlygl3ymmrD8IL";
 
+// 🔹 Lista de promotores supervisionados
+const promotores = new Set();
+
+// 🔹 Seu open_id pessoal (SUPERVISOR)
+const SUPERVISOR_OPEN_ID = "ou_c4766cc5fbbee2f41839435392d4c889";
+
 // 🔹 Função para obter o tenant_access_token
 async function getTenantAccessToken() {
   try {
@@ -21,9 +27,7 @@ async function getTenantAccessToken() {
     );
 
     const token = response.data.tenant_access_token;
-    if (!token) {
-      throw new Error("Token não retornado pelo Feishu");
-    }
+    if (!token) throw new Error("Token não retornado pelo Feishu");
 
     console.log("Novo tenant_access_token obtido!");
     return token;
@@ -33,54 +37,125 @@ async function getTenantAccessToken() {
   }
 }
 
+// 🔹 Sistema de comandos com menção
+function handleSupervisorCommand(text, mentions) {
+  const parts = text.trim().split(/\s+/);
+  const command = parts[0].toLowerCase();
+
+  if (command === "add_promotor") {
+    if (!mentions || mentions.length === 0) {
+      return "Você precisa mencionar o promotor. Ex: add_promotor @João";
+    }
+
+    const openId = mentions[0].id.open_id;
+    const name = mentions[0].name;
+
+    promotores.add(openId);
+
+    return `Promotor ${name} (${openId}) adicionado à supervisão.`;
+  }
+
+  if (command === "remove_promotor") {
+    if (!mentions || mentions.length === 0) {
+      return "Você precisa mencionar o promotor. Ex: remove_promotor @João";
+    }
+
+    const openId = mentions[0].id.open_id;
+    const name = mentions[0].name;
+
+    if (!promotores.has(openId)) {
+      return `Promotor ${name} não está na lista.`;
+    }
+
+    promotores.delete(openId);
+
+    return `Promotor ${name} (${openId}) removido da supervisão.`;
+  }
+
+  if (command === "list_promotores") {
+    if (promotores.size === 0) {
+      return "Nenhum promotor cadastrado na supervisão.";
+    }
+
+    return (
+      "Promotores supervisionados:\n" +
+      Array.from(promotores).join("\n")
+    );
+  }
+
+  return "Comando inválido. Use: add_promotor @nome, remove_promotor @nome, list_promotores.";
+}
+
 // 🔹 Endpoint principal do bot
 app.post("/bot", async (req, res) => {
   const { challenge, event } = req.body;
 
-  // ✅ Responde ao Feishu quando ele faz o teste de verificação
   if (challenge) {
     console.log("Challenge recebido e respondido!");
     return res.send({ challenge });
   }
 
-  // ✅ Loga o evento recebido
   console.log("Received event:", event);
 
-  // 🔹 Verifica se é uma mensagem de texto
-  if (event && event.message && event.message.message_type === "text") {
-    const text = JSON.parse(event.message.content).text;
-    const senderId = event.sender.sender_id.open_id;
+  if (!event || !event.message || event.message.message_type !== "text") {
+    return res.sendStatus(200);
+  }
 
-    console.log(`Mensagem recebida de ${senderId}: ${text}`);
+  const text = JSON.parse(event.message.content).text;
+  const mentions = event.message.mentions || [];
+  const senderOpenId = event.sender.sender_id.open_id;
+  const chatType = event.message.chat_type;
+  const chatId = event.message.chat_id;
 
-    // 🔹 Envia resposta ao usuário
-    try {
-      const token = await getTenantAccessToken();
-      if (!token) {
-        console.error("Token inválido — não foi possível enviar mensagem.");
-        return res.sendStatus(500);
+  console.log(`Mensagem recebida de ${senderOpenId} (${chatType}): ${text}`);
+
+  const token = await getTenantAccessToken();
+  if (!token) {
+    console.error("Token inválido — não foi possível enviar mensagem.");
+    return res.sendStatus(500);
+  }
+
+  // 1️⃣ Mensagens no seu chat pessoal → comandos
+  if (chatType === "p2p" && senderOpenId === SUPERVISOR_OPEN_ID) {
+    const resposta = handleSupervisorCommand(text, mentions);
+
+    await axios.post(
+      "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id",
+      {
+        receive_id: senderOpenId,
+        msg_type: "text",
+        content: JSON.stringify({ text: resposta }),
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        }
       }
+    );
 
-      const response = await axios.post(
+    return res.sendStatus(200);
+  }
+
+  // 2️⃣ Mensagens no grupo geral → encaminhar se for promotor
+  if (chatType === "group") {
+    if (promotores.has(senderOpenId)) {
+      await axios.post(
         "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id",
         {
-          receive_id: senderId,
+          receive_id: SUPERVISOR_OPEN_ID,
           msg_type: "text",
           content: JSON.stringify({
-            text: `Recebi sua mensagem: ${text}`,
+            text: `Mensagem de ${senderOpenId} no grupo:\n${text}`,
           }),
         },
         {
           headers: {
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
-          },
+          }
         }
       );
-
-      console.log("Mensagem enviada com sucesso!", response.data);
-    } catch (error) {
-      console.error("Erro ao enviar resposta:", error.response?.data || error);
     }
   }
 
@@ -88,7 +163,7 @@ app.post("/bot", async (req, res) => {
 });
 
 // 🔹 Inicializa o servidor
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`Bot rodando na porta ${PORT}`);
 });
