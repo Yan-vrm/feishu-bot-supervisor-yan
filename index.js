@@ -1,6 +1,7 @@
 import express from "express";
 import bodyParser from "body-parser";
 import axios from "axios";
+import fs from "fs";
 
 const app = express();
 app.use(bodyParser.json());
@@ -9,11 +10,39 @@ app.use(bodyParser.json());
 const APP_ID = "cli_aac3ff41a578dcef";
 const APP_SECRET = "E6Obo8U9KbLNUV2KVkWlygl3ymmrD8IL";
 
-// 🔹 Lista de promotores supervisionados (open_id → nome)
-const promotores = new Map();
-
 // 🔹 Seu open_id pessoal (SUPERVISOR)
 const SUPERVISOR_OPEN_ID = "ou_c4766cc5fbbee2f41839435392d4c889";
+
+// 🔹 Arquivo onde os promotores serão salvos
+const PROMOTORES_FILE = "./promotores.json";
+
+// 🔹 Carregar promotores do arquivo
+function loadPromotores() {
+  try {
+    if (fs.existsSync(PROMOTORES_FILE)) {
+      const data = fs.readFileSync(PROMOTORES_FILE, "utf8");
+      const json = JSON.parse(data);
+      return new Map(Object.entries(json)); // open_id → nome
+    }
+  } catch (err) {
+    console.error("Erro ao carregar promotores:", err);
+  }
+  return new Map();
+}
+
+// 🔹 Salvar promotores no arquivo
+function savePromotores() {
+  try {
+    const obj = Object.fromEntries(promotores);
+    fs.writeFileSync(PROMOTORES_FILE, JSON.stringify(obj, null, 2));
+  } catch (err) {
+    console.error("Erro ao salvar promotores:", err);
+  }
+}
+
+// 🔹 Lista de promotores supervisionados (persistente)
+const promotores = loadPromotores();
+console.log("Promotores carregados:", promotores);
 
 // 🔹 Função para obter o tenant_access_token
 async function getTenantAccessToken() {
@@ -40,7 +69,7 @@ async function getTenantAccessToken() {
 // 🔹 Sistema de comandos com menção
 function handleSupervisorCommand(text, mentions) {
   const parts = text.trim().split(/\s+/);
-  const command = parts[0].toLowerCase(); // ← agora é case-insensitive
+  const command = parts[0].toLowerCase();
 
   // ➕ Adicionar promotor
   if (command === "add_promotor") {
@@ -52,6 +81,7 @@ function handleSupervisorCommand(text, mentions) {
     const name = mentions[0].name;
 
     promotores.set(openId, name);
+    savePromotores();
 
     return `Promotor ${name} (${openId}) adicionado à supervisão.`;
   }
@@ -70,6 +100,7 @@ function handleSupervisorCommand(text, mentions) {
     }
 
     promotores.delete(openId);
+    savePromotores();
 
     return `Promotor ${name} (${openId}) removido da supervisão.`;
   }
