@@ -19,7 +19,14 @@ async function getTenantAccessToken() {
         app_secret: APP_SECRET,
       }
     );
-    return response.data.tenant_access_token;
+
+    const token = response.data.tenant_access_token;
+    if (!token) {
+      throw new Error("Token não retornado pelo Feishu");
+    }
+
+    console.log("Novo tenant_access_token obtido!");
+    return token;
   } catch (error) {
     console.error("Erro ao obter tenant_access_token:", error.response?.data || error);
     return null;
@@ -49,7 +56,12 @@ app.post("/bot", async (req, res) => {
     // 🔹 Envia resposta ao usuário
     try {
       const token = await getTenantAccessToken();
-      await axios.post(
+      if (!token) {
+        console.error("Token inválido — não foi possível enviar mensagem.");
+        return res.sendStatus(500);
+      }
+
+      const response = await axios.post(
         "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id",
         {
           receive_id: senderId,
@@ -65,7 +77,8 @@ app.post("/bot", async (req, res) => {
           },
         }
       );
-      console.log("Mensagem enviada com sucesso!");
+
+      console.log("Mensagem enviada com sucesso!", response.data);
     } catch (error) {
       console.error("Erro ao enviar resposta:", error.response?.data || error);
     }
