@@ -40,7 +40,7 @@ async function getTenantAccessToken() {
 // 🔹 Sistema de comandos com menção
 function handleSupervisorCommand(text, mentions) {
   const parts = text.trim().split(/\s+/);
-  const command = parts[0].toLowerCase();
+  const command = parts[0].toLowerCase(); // ← agora é case-insensitive
 
   // ➕ Adicionar promotor
   if (command === "add_promotor") {
