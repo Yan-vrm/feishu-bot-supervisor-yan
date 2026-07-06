@@ -71,4 +71,11 @@ app.post("/bot", async (req, res) => {
     }
   }
 
-  res.sendStatus
+  res.sendStatus(200);
+});
+
+// 🔹 Inicializa o servidor
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Bot rodando na porta ${PORT}`);
+});
