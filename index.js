@@ -1,108 +1,79 @@
-import fs from "fs";
 import express from "express";
+import bodyParser from "body-parser";
 import axios from "axios";
 
 const app = express();
-app.use(express.json());
+app.use(bodyParser.json());
 
-// Carrega promotores
-function carregarPromotores() {
-  const data = fs.readFileSync("promotores.json");
-  return JSON.parse(data).lista;
-}
+// 🔹 Substitua pelo seu próprio App ID e App Secret do Feishu
+const APP_ID = "cli_xxxxxxxxxxxxx";
+const APP_SECRET = "xxxxxxxxxxxxxxxxxxxx";
 
-// Salva promotores
-function salvarPromotores(lista) {
-  fs.writeFileSync("promotores.json", JSON.stringify({ lista }, null, 2));
-}
-
-// Enviar mensagem
-async function enviarMensagem(chatId, texto) {
-  const token = await gerarToken();
-  await axios.post(
-    "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id",
-    {
-      receive_id: chatId,
-      msg_type: "text",
-      content: JSON.stringify({ text: texto })
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json"
-      }
-    }
-  );
-}
-
-// Token
-async function gerarToken() {
-  const res = await axios.post(
-    "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
-    {
-      app_id: process.env.APP_ID,
-      app_secret: process.env.APP_SECRET
-    }
-  );
-  return res.data.tenant_access_token;
-}
-
-// BOT
+// 🔹 Endpoint principal do bot
 app.post("/bot", async (req, res) => {
-  const event = req.body;
+  const { challenge, event } = req.body;
 
-  if (event.type === "url_verification") {
-    return res.send({ challenge: event.challenge });
+  // ✅ Responde ao Feishu quando ele faz o teste de verificação
+  if (challenge) {
+    console.log("Challenge recebido e respondido!");
+    return res.send({ challenge });
   }
 
-  if (event.header.event_type === "im.message.receive_v1") {
-    const msg = event.event;
+  // ✅ Loga o evento recebido
+  console.log("Received event:", event);
 
-    const chatId = msg.message.chat_id;
-    const senderId = msg.sender.sender_id.open_id;
-    const texto = JSON.parse(msg.message.content).text.trim();
+  // 🔹 Exemplo: responder mensagens privadas
+  if (event && event.message && event.message.message_type === "text") {
+    const text = event.message.content;
+    const senderId = event.sender.sender_id.open_id;
 
-    let promotores = carregarPromotores();
+    console.log(`Mensagem recebida de ${senderId}: ${text}`);
 
-    // Comando: adicionar promotor
-    if (texto === "/addpromotor") {
-      if (!promotores.includes(senderId)) {
-        promotores.push(senderId);
-        salvarPromotores(promotores);
-        await enviarMensagem(chatId, "✔ Você agora é um promotor!");
-      } else {
-        await enviarMensagem(chatId, "Você já é promotor.");
-      }
-      return res.sendStatus(200);
+    // 🔹 Responde ao usuário
+    try {
+      await axios.post(
+        "https://open.feishu.cn/open-apis/message/v4/send/",
+        {
+          open_id: senderId,
+          msg_type: "text",
+          content: JSON.stringify({
+            text: `Recebi sua mensagem: ${text}`,
+          }),
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${await getTenantAccessToken()}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+    } catch (error) {
+      console.error("Erro ao enviar resposta:", error.response?.data || error);
     }
-
-    // Comando: remover promotor
-    if (texto === "/removepromotor") {
-      if (promotores.includes(senderId)) {
-        promotores = promotores.filter(id => id !== senderId);
-        salvarPromotores(promotores);
-        await enviarMensagem(chatId, "❌ Você foi removido da lista de promotores.");
-      } else {
-        await enviarMensagem(chatId, "Você não está na lista de promotores.");
-      }
-      return res.sendStatus(200);
-    }
-
-    // Se não for promotor → ignorar
-    if (!promotores.includes(senderId)) {
-      console.log("Ignorado: não é promotor.");
-      return res.sendStatus(200);
-    }
-
-    // Mensagem de promotor
-    await enviarMensagem(chatId, `Promotor falou: ${texto}`);
-
-    return res.sendStatus(200);
   }
 
   res.sendStatus(200);
 });
 
-// Iniciar servidor
-app.listen(3000, () => console.log("Bot rodando!"));
+// 🔹 Função para obter o token de acesso do Feishu
+async function getTenantAccessToken() {
+  try {
+    const response = await axios.post(
+      "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal/",
+      {
+        app_id: APP_ID,
+        app_secret: APP_SECRET,
+      }
+    );
+    return response.data.tenant_access_token;
+  } catch (error) {
+    console.error("Erro ao obter tenant_access_token:", error.response?.data || error);
+    return null;
+  }
+}
 
+// 🔹 Inicializa o servidor
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Bot rodando na porta ${PORT}`);
+});
