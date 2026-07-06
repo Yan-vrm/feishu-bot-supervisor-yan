@@ -9,8 +9,8 @@ app.use(bodyParser.json());
 const APP_ID = "cli_aac3ff41a578dcef";
 const APP_SECRET = "E6Obo8U9KbLNUV2KVkWlygl3ymmrD8IL";
 
-// 🔹 Lista de promotores supervisionados
-const promotores = new Set();
+// 🔹 Lista de promotores supervisionados (open_id → nome)
+const promotores = new Map();
 
 // 🔹 Seu open_id pessoal (SUPERVISOR)
 const SUPERVISOR_OPEN_ID = "ou_c4766cc5fbbee2f41839435392d4c889";
@@ -42,6 +42,7 @@ function handleSupervisorCommand(text, mentions) {
   const parts = text.trim().split(/\s+/);
   const command = parts[0].toLowerCase();
 
+  // ➕ Adicionar promotor
   if (command === "add_promotor") {
     if (!mentions || mentions.length === 0) {
       return "Você precisa mencionar o promotor. Ex: add_promotor @João";
@@ -50,11 +51,12 @@ function handleSupervisorCommand(text, mentions) {
     const openId = mentions[0].id.open_id;
     const name = mentions[0].name;
 
-    promotores.add(openId);
+    promotores.set(openId, name);
 
     return `Promotor ${name} (${openId}) adicionado à supervisão.`;
   }
 
+  // ➖ Remover promotor
   if (command === "remove_promotor") {
     if (!mentions || mentions.length === 0) {
       return "Você precisa mencionar o promotor. Ex: remove_promotor @João";
@@ -72,15 +74,19 @@ function handleSupervisorCommand(text, mentions) {
     return `Promotor ${name} (${openId}) removido da supervisão.`;
   }
 
+  // 📋 Listar promotores com nome
   if (command === "list_promotores") {
     if (promotores.size === 0) {
       return "Nenhum promotor cadastrado na supervisão.";
     }
 
-    return (
-      "Promotores supervisionados:\n" +
-      Array.from(promotores).join("\n")
-    );
+    let lista = "Promotores supervisionados:\n\n";
+
+    for (const [openId, name] of promotores.entries()) {
+      lista += `• ${name} — ${openId}\n`;
+    }
+
+    return lista;
   }
 
   return "Comando inválido. Use: add_promotor @nome, remove_promotor @nome, list_promotores.";
@@ -105,7 +111,6 @@ app.post("/bot", async (req, res) => {
   const mentions = event.message.mentions || [];
   const senderOpenId = event.sender.sender_id.open_id;
   const chatType = event.message.chat_type;
-  const chatId = event.message.chat_id;
 
   console.log(`Mensagem recebida de ${senderOpenId} (${chatType}): ${text}`);
 
@@ -140,13 +145,15 @@ app.post("/bot", async (req, res) => {
   // 2️⃣ Mensagens no grupo geral → encaminhar se for promotor
   if (chatType === "group") {
     if (promotores.has(senderOpenId)) {
+      const nomePromotor = promotores.get(senderOpenId);
+
       await axios.post(
         "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id",
         {
           receive_id: SUPERVISOR_OPEN_ID,
           msg_type: "text",
           content: JSON.stringify({
-            text: `Mensagem de ${senderOpenId} no grupo:\n${text}`,
+            text: `Mensagem de ${nomePromotor} (${senderOpenId}) no grupo:\n${text}`,
           }),
         },
         {
