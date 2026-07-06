@@ -5,11 +5,11 @@ import axios from "axios";
 const app = express();
 app.use(bodyParser.json());
 
-// 🔹 Substitua pelos seus valores reais do Feishu Developer Console
-const APP_ID = "cli_xxxxxxxxxxxxx";
-const APP_SECRET = "xxxxxxxxxxxxxxxxxxxx";
+// 🔹 Credenciais do seu app Feishu
+const APP_ID = "cli_aac3ff41a578dcef";
+const APP_SECRET = "E6Obo8U9KbLNUV2KVkWlygl3ymmrD8IL";
 
-// 🔹 Função para obter o token de acesso do Feishu
+// 🔹 Função para obter o tenant_access_token
 async function getTenantAccessToken() {
   try {
     const response = await axios.post(
